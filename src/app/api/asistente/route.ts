@@ -16,7 +16,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const mensaje = sanitizarTexto(body?.mensaje);
-    const conversationId = typeof body?.conversationId === 'string' ? body.conversationId.slice(0, 100) : undefined;
+    const conversationId =
+      typeof body?.conversationId === 'string' && body.conversationId.trim() !== ''
+        ? body.conversationId.slice(0, 100)
+        : undefined;
 
     if (!mensaje) {
       return NextResponse.json(
@@ -29,7 +32,7 @@ export async function POST(req: NextRequest) {
     try {
       const botsRes = await fetch(`${MBOT_URL}/api/bots`, {
         cache: 'no-store',
-        signal: AbortSignal.timeout(3500),
+        signal: AbortSignal.timeout(4000),
       });
 
       if (botsRes.ok) {
@@ -45,11 +48,11 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              botId: botObjetivo.id,
+              bot_id: botObjetivo.id,
               message: mensaje,
-              ...(conversationId ? { conversationId } : {}),
+              ...(conversationId ? { conversation_id: conversationId } : {}),
             }),
-            signal: AbortSignal.timeout(15000),
+            signal: AbortSignal.timeout(25000),
           });
 
           if (chatRes.ok) {
@@ -64,7 +67,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({
               respuesta: respuestaBot,
               fuente: `MBot Studio (${botObjetivo.name})`,
-              conversationId: chatData?.conversationId || conversationId || null,
+              conversationId: chatData?.conversation_id || chatData?.conversationId || conversationId || null,
             });
           }
         }
@@ -78,7 +81,11 @@ export async function POST(req: NextRequest) {
       .toLowerCase()
       .replace(/[^a-záéíóúñ0-9\s]/gi, ' ')
       .split(/\s+/)
-      .filter((p) => p.length >= 3 && !['precio', 'precios', 'donde', 'dónde', 'esta', 'está', 'mas', 'más', 'barato', 'cerca', 'pac'].includes(p));
+      .filter(
+        (p) =>
+          p.length >= 3 &&
+          !['precio', 'precios', 'donde', 'dónde', 'esta', 'está', 'mas', 'más', 'barato', 'cerca', 'pac'].includes(p)
+      );
 
     const termino = palabrasClave[0] || '';
     const { data: precios } = await supabase.rpc('buscar_precios_cercanos', {
