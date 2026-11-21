@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-const MBOT_URL = (process.env.MBOT_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+const MBOT_URL = (process.env.MBOT_API_URL || 'http://127.0.0.1:3000')
+  .replace('localhost', '127.0.0.1')
+  .replace(/\/$/, '');
 
 function sanitizarTexto(input: unknown): string {
   if (typeof input !== 'string') return '';
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Intentar conectar con MBot Studio
+    // 1. Conectar con MBot Studio (formato exacto de chatRoutes.js: { success, data })
     try {
       const botsRes = await fetch(`${MBOT_URL}/api/bots`, {
         cache: 'no-store',
@@ -36,8 +38,13 @@ export async function POST(req: NextRequest) {
       });
 
       if (botsRes.ok) {
-        const botsData = await botsRes.json();
-        const botsList = Array.isArray(botsData) ? botsData : botsData?.bots || [];
+        const botsJson = await botsRes.json();
+        const botsList = Array.isArray(botsJson)
+          ? botsJson
+          : Array.isArray(botsJson?.data)
+            ? botsJson.data
+            : botsJson?.bots || [];
+
         const botObjetivo =
           botsList.find((b: { name?: string }) =>
             b.name?.toLowerCase().includes('observatorio')
@@ -48,27 +55,36 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              bot_id: botObjetivo.id,
+              botId: botObjetivo.id,
               message: mensaje,
-              ...(conversationId ? { conversation_id: conversationId } : {}),
+              ...(conversationId ? { conversationId } : {}),
             }),
             signal: AbortSignal.timeout(25000),
           });
 
           if (chatRes.ok) {
-            const chatData = await chatRes.json();
+            const chatJson = await chatRes.json();
+            const payload = chatJson?.data || chatJson;
             const respuestaBot =
-              chatData?.response ||
-              chatData?.reply ||
-              chatData?.message?.content ||
-              chatData?.content ||
-              'Respuesta recibida desde MBot Studio.';
+              payload?.assistantMessage?.content ||
+              payload?.botMessage?.content ||
+              payload?.response ||
+              payload?.reply ||
+              payload?.message?.content ||
+              payload?.content ||
+              (typeof payload === 'string' ? payload : null);
 
-            return NextResponse.json({
-              respuesta: respuestaBot,
-              fuente: `MBot Studio (${botObjetivo.name})`,
-              conversationId: chatData?.conversation_id || chatData?.conversationId || conversationId || null,
-            });
+            if (respuestaBot) {
+              return NextResponse.json({
+                respuesta: respuestaBot,
+                fuente: `MBot Studio (${botObjetivo.name})`,
+                conversationId:
+                  payload?.conversationId ||
+                  payload?.conversation?.id ||
+                  conversationId ||
+                  null,
+              });
+            }
           }
         }
       }
